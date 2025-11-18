@@ -1,0 +1,29 @@
+.init-container {
+    padding: 20px;
+  }
+  
+  .init-button {
+    padding: 10px 20px;
+    font-size: 16px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  
+  .init-button:hover {
+    background-color: #0056b3;
+  }
+  
+  .init-message {
+    margin-top: 20px;
+    padding: 10px;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+  }
+  
+  .init-back-link {
+    margin-top: 20px;
+    display: block;
+  }

@@ -1,50 +1,62 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, getDocs, query, where, doc, getDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { getWeekDates, formatDate, formatDateDisplay, generateTimeSlots } from '../utils/dateUtils';
 import '../styles/HomePage.css';
 
 function HomePage() {
+  const { roomId } = useParams();
   const navigate = useNavigate();
+  // カレンダー関係の状態
   const [currentDate, setCurrentDate] = useState(new Date());
   const [weekDates, setWeekDates] = useState([]);
+  const [currentRoom, setCurrentRoom] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [blockedDates, setBlockedDates] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // モーダル関連の状態
+  // モーダル関係の状態
   const [showModal, setShowModal] = useState(false);
-  const [modalMode, setModalMode] = useState(''); // 'view', 'create', 'blocked'
+  const [modalMode, setModalMode] = useState('');
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
-  
-  // 予約フォームの状態
+  // 予約フォーム関係の状態
   const [formData, setFormData] = useState({
     representativeName: '',
     phoneNumber: '',
     numberOfPeople: '',
-    purpose: ''
+    purpose: '',
+    startTime: '',
+    endTime: ''
   });
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
-    fetchData();
-  }, [currentDate]);
+    fetchData(); // データ取得関数を実行
+  }, [currentDate, roomId]);
 
   const fetchData = async () => {
-    setLoading(true);
+    setLoading(true); // ローディング開始
     try {
-      // 会議室取得
+      // １.会議室のデータ取得
       const roomsSnapshot = await getDocs(collection(db, 'rooms'));
       const roomsData = roomsSnapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .sort((a, b) => a.order - b.order);
       setRooms(roomsData);
 
-      // 設定取得
+      // ２.選択した会議室のデータ取得
+      const room = roomsData.find(r => r.id === roomId);
+      if (room) {
+        setCurrentRoom(room);
+      } else {
+        navigate('/');
+        return;
+      }
+
+      // ３.設定データの取得
       const settingsDoc = await getDoc(doc(db, 'settings', 'config'));
       if (settingsDoc.exists()) {
         const settings = settingsDoc.data();
@@ -56,68 +68,94 @@ function HomePage() {
         setTimeSlots(slots);
       }
 
-      // 週の日付を計算
+      // ４.週の日付を取得
       const dates = getWeekDates(currentDate);
       setWeekDates(dates);
 
-      // 予約取得（週の範囲）
+      // ５.予約の範囲を取得
       const startDate = formatDate(dates[0]);
       const endDate = formatDate(dates[6]);
+      console.log('予約取得範囲:', { startDate, endDate, roomId });
+      
+      // roomIdでフィルタリングしてからクライアント側で日付範囲をフィルタリング
       const bookingsQuery = query(
         collection(db, 'bookings'),
-        where('date', '>=', startDate),
-        where('date', '<=', endDate)
+        where('roomId', '==', roomId)
       );
       const bookingsSnapshot = await getDocs(bookingsQuery);
-      const bookingsData = bookingsSnapshot.docs.map(doc => ({
+      const allBookingsData = bookingsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      // クライアント側で日付範囲をフィルタリング
+      const bookingsData = allBookingsData.filter(booking => {
+        return booking.date >= startDate && booking.date <= endDate;
+      });
+      console.log('取得した予約情報（全件）:', allBookingsData);
+      console.log('フィルタリング後の予約情報:', bookingsData);
       setBookings(bookingsData);
 
-      // 予約不可日取得
+      // ６.予約不可日を取得
       const blockedDatesSnapshot = await getDocs(collection(db, 'blockedDates'));
       const blockedDatesData = blockedDatesSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+      console.log('取得した予約不可日:', blockedDatesData);
       setBlockedDates(blockedDatesData);
 
     } catch (error) {
       console.error('データ取得エラー:', error);
     } finally {
-      setLoading(false);
+      setLoading(false); // ローディング終了
     }
   };
 
-  // 予約を取得する関数
-  const getBooking = (roomId, date, time) => {
-    return bookings.find(
-      b => b.roomId === roomId && b.date === date && b.startTime === time
-    );
+  //　予約情報の取得関数
+  const getBookingForSlot = (roomId, date, time) => {
+    const booking = bookings.find(booking => {
+      if (booking.roomId !== roomId || booking.date !== date) {
+        return false;
+      }
+      return time >= booking.startTime && time < booking.endTime;
+    });
+    if (booking && time === booking.startTime) {
+      console.log('予約情報が見つかりました:', { roomId, date, time, booking });
+    }
+    return booking;
   };
 
-  // 日付が予約不可かチェック
+  // 予約不可日の判定関数
   const isDateBlocked = (date, roomId = null) => {
-    return blockedDates.some(blocked => {
+    const isBlocked = blockedDates.some(blocked => {
       if (blocked.date !== date) return false;
       if (blocked.type === 'all') return true;
       if (blocked.type === 'specific' && blocked.roomId === roomId) return true;
       return false;
     });
+    if (isBlocked) {
+      console.log('予約不可日:', { date, roomId, blockedDates: blockedDates.filter(b => b.date === date) });
+    }
+    return isBlocked;
   };
 
-  // スロットクリック時の処理
+  //　終了時間の計算関数
+  const calculateEndTime = (startTime, duration) => {
+    const [hour, minute] = startTime.split(':').map(Number);
+    const endMinute = minute + duration;
+    const endHour = endMinute >= 60 ? hour + Math.floor(endMinute / 60) : hour;
+    return `${String(endHour).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`;
+  };
+
+  // スロットクリックの処理関数
   const handleSlotClick = (room, date, time) => {
     const dateStr = formatDate(date);
     
-    // 過去日チェック
     const slotDateTime = new Date(`${dateStr}T${time}`);
     if (slotDateTime < new Date()) {
-      return; // 過去のスロットはクリック不可
+      return;
     }
 
-    // 予約不可日チェック
     if (isDateBlocked(dateStr, room.id)) {
       const blocked = blockedDates.find(b => 
         b.date === dateStr && 
@@ -129,21 +167,21 @@ function HomePage() {
       return;
     }
 
-    const booking = getBooking(room.id, dateStr, time);
+    const booking = getBookingForSlot(room.id, dateStr, time);
     
     if (booking) {
-      // 既存予約をクリック
       setSelectedBooking(booking);
       setModalMode('view');
       setShowModal(true);
     } else {
-      // 空きスロットをクリック
       setSelectedSlot({ room, date: dateStr, time });
       setFormData({
         representativeName: '',
         phoneNumber: '',
         numberOfPeople: '',
-        purpose: ''
+        purpose: '',
+        startTime: time,
+        endTime: calculateEndTime(time, 15)
       });
       setFormError('');
       setModalMode('create');
@@ -151,12 +189,11 @@ function HomePage() {
     }
   };
 
-  // 予約作成
+  // 予約作成ページの処理関数
   const handleCreateBooking = async (e) => {
     e.preventDefault();
     setFormError('');
 
-    // バリデーション
     if (!formData.representativeName.trim()) {
       setFormError('代表者名を入力してください');
       return;
@@ -169,8 +206,15 @@ function HomePage() {
       setFormError('利用人数を入力してください');
       return;
     }
+    if (!formData.startTime || !formData.endTime) {
+      setFormError('開始時刻と終了時刻を選択してください');
+      return;
+    }
+    if (formData.startTime >= formData.endTime) {
+      setFormError('終了時刻は開始時刻より後にしてください');
+      return;
+    }
 
-    // 電話番号形式チェック
     const phoneRegex = /^[0-9\-]+$/;
     if (!phoneRegex.test(formData.phoneNumber)) {
       setFormError('電話番号は数字とハイフンのみで入力してください');
@@ -178,30 +222,33 @@ function HomePage() {
     }
 
     try {
-      // 重複チェック
-      const existingBooking = getBooking(
-        selectedSlot.room.id,
-        selectedSlot.date,
-        selectedSlot.time
-      );
-      if (existingBooking) {
-        setFormError('この時間帯は既に予約されています');
+      const hasConflict = bookings.some(booking => {
+        if (booking.roomId !== selectedSlot.room.id) return false;
+        if (booking.date !== selectedSlot.date) return false;
+        
+        const existingStart = booking.startTime;
+        const existingEnd = booking.endTime;
+        const newStart = formData.startTime;
+        const newEnd = formData.endTime;
+        
+        return (
+          (newStart >= existingStart && newStart < existingEnd) ||
+          (newEnd > existingStart && newEnd <= existingEnd) ||
+          (newStart <= existingStart && newEnd >= existingEnd)
+        );
+      });
+
+      if (hasConflict) {
+        setFormError('選択した時間帯に予約が重複しています');
         return;
       }
 
-      // 終了時刻を計算（15分後）
-      const [hour, minute] = selectedSlot.time.split(':').map(Number);
-      const endMinute = minute + 15;
-      const endHour = endMinute >= 60 ? hour + 1 : hour;
-      const endTime = `${String(endHour).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`;
-
-      // 予約データ作成
       await addDoc(collection(db, 'bookings'), {
         roomId: selectedSlot.room.id,
         roomName: selectedSlot.room.name,
         date: selectedSlot.date,
-        startTime: selectedSlot.time,
-        endTime: endTime,
+        startTime: formData.startTime,
+        endTime: formData.endTime,
         representativeName: formData.representativeName.trim(),
         phoneNumber: formData.phoneNumber.trim(),
         numberOfPeople: parseInt(formData.numberOfPeople),
@@ -209,10 +256,9 @@ function HomePage() {
         createdAt: new Date()
       });
 
-      // 成功
       alert('予約が完了しました！');
       setShowModal(false);
-      fetchData(); // データ再取得
+      fetchData();
 
     } catch (error) {
       console.error('予約作成エラー:', error);
@@ -220,7 +266,7 @@ function HomePage() {
     }
   };
 
-  // 予約キャンセル
+  // 予約キャンセルページの処理関数
   const handleCancelBooking = async () => {
     if (!window.confirm('この予約をキャンセルしますか？')) {
       return;
@@ -237,7 +283,7 @@ function HomePage() {
     }
   };
 
-  // モーダルを閉じる
+  // モーダルを閉じる関数
   const closeModal = () => {
     setShowModal(false);
     setSelectedSlot(null);
@@ -245,7 +291,7 @@ function HomePage() {
     setFormError('');
   };
 
-  // 週移動
+  //週の移動系関数
   const goToPreviousWeek = () => {
     const newDate = new Date(currentDate);
     newDate.setDate(newDate.getDate() - 7);
@@ -262,18 +308,37 @@ function HomePage() {
     setCurrentDate(newDate);
   };
 
+  //　会議室の変更画面
+  const handleRoomChange = (newRoomId) => {
+    navigate(`/calendar/${newRoomId}`);
+  };
+
   if (loading) {
     return <div className="loading">読み込み中...</div>;
   }
 
+  // カレンダー画面
   return (
     <div className="home-container">
       <header className="home-header">
-        <h1>会議室予約システム</h1>
-        <div className="header-buttons">
-          <button onClick={() => navigate('/booking')} className="nav-button">
-            予約作成
+        <div className="header-left">
+          <button onClick={() => navigate('/')} className="back-button">
+            ← 会議室一覧
           </button>
+          <h1>{currentRoom?.name || '会議室'}</h1>
+        </div>
+        <div className="header-buttons">
+          <select 
+            value={roomId} 
+            onChange={(e) => handleRoomChange(e.target.value)}
+            className="room-selector"
+          >
+            {rooms.map(room => (
+              <option key={room.id} value={room.id}>
+                {room.name}
+              </option>
+            ))}
+          </select>
           <button onClick={() => navigate('/my-booking')} className="nav-button">
             予約確認
           </button>
@@ -308,54 +373,46 @@ function HomePage() {
             </tr>
           </thead>
           <tbody>
-            {rooms.map((room) => (
-              <React.Fragment key={room.id}>
-                <tr className="room-header-row">
-                  <td className="room-name" colSpan={8}>
-                    {room.name} (定員{room.capacity}名)
-                  </td>
-                </tr>
-                {timeSlots.map((time) => (
-                  <tr key={`${room.id}-${time}`} className="time-row">
-                    <td className="time-cell">{time}</td>
-                    {weekDates.map((date, dateIndex) => {
-                      const dateStr = formatDate(date);
-                      const booking = getBooking(room.id, dateStr, time);
-                      const isBlocked = isDateBlocked(dateStr, room.id);
-                      const isPast = new Date(`${dateStr}T${time}`) < new Date();
-                      
-                      let cellClass = 'booking-cell';
-                      if (isPast) cellClass += ' past';
-                      else if (isBlocked) cellClass += ' blocked';
-                      else if (booking) cellClass += ' booked';
-                      else cellClass += ' available';
+            {currentRoom && timeSlots.map((time) => (
+              <tr key={time} className="time-row">
+                <td className="time-cell">{time}</td>
+                {weekDates.map((date, dateIndex) => {
+                  const dateStr = formatDate(date);
+                  const booking = getBookingForSlot(currentRoom.id, dateStr, time);
+                  const isBlocked = isDateBlocked(dateStr, currentRoom.id);
+                  const isPast = new Date(`${dateStr}T${time}`) < new Date();
+                  
+                  let cellClass = 'booking-cell';
+                  if (isPast) cellClass += ' past';
+                  else if (isBlocked) cellClass += ' blocked';
+                  else if (booking) cellClass += ' booked';
+                  else cellClass += ' available';
 
-                      return (
-                        <td
-                          key={dateIndex}
-                          className={cellClass}
-                          onClick={() => !isPast && handleSlotClick(room, date, time)}
-                        >
-                          {booking && (
-                            <div className="booking-info">
-                              {booking.representativeName}
-                            </div>
-                          )}
-                          {isBlocked && !booking && (
-                            <div className="blocked-info">予約不可</div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </React.Fragment>
+                  return (
+                    <td
+                      key={dateIndex}
+                      className={cellClass}
+                      onClick={() => !isPast && handleSlotClick(currentRoom, date, time)}
+                    >
+                      {!isBlocked && booking && booking.startTime === time && (
+                        <div className="booking-info">
+                          <div className="booking-time">
+                            {booking.startTime} - {booking.endTime}
+                          </div>
+                          <div className="booking-name">
+                            {booking.representativeName}
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {/* モーダル */}
       {showModal && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -388,9 +445,36 @@ function HomePage() {
                 <div className="booking-details">
                   <p><strong>会議室:</strong> {selectedSlot.room.name}</p>
                   <p><strong>日付:</strong> {selectedSlot.date}</p>
-                  <p><strong>時間:</strong> {selectedSlot.time}</p>
                 </div>
                 <form onSubmit={handleCreateBooking} className="booking-form">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>開始時刻 *</label>
+                      <select
+                        value={formData.startTime}
+                        onChange={(e) => setFormData({...formData, startTime: e.target.value})}
+                        required
+                      >
+                        <option value="">選択してください</option>
+                        {timeSlots.map(time => (
+                          <option key={time} value={time}>{time}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>終了時刻 *</label>
+                      <select
+                        value={formData.endTime}
+                        onChange={(e) => setFormData({...formData, endTime: e.target.value})}
+                        required
+                      >
+                        <option value="">選択してください</option>
+                        {timeSlots.map(time => (
+                          <option key={time} value={time}>{time}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                   <div className="form-group">
                     <label>代表者名 *</label>
                     <input

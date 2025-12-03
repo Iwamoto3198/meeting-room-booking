@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { format } from 'date-fns';
+import { ja } from 'date-fns/locale';   // ⭐ 追加
 import '../styles/MyBookingPage.css';
 
 function MyBookingPage() {
@@ -17,15 +18,13 @@ function MyBookingPage() {
   const [cancelComplete, setCancelComplete] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // フォーム入力の変更処理
   const handleChange = (e) => {
     const { name, value } = e.target;
     setSearchData(prev => ({
       ...prev,
       [name]: value
     }));
-    
-    // エラーをクリア
+
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -34,7 +33,6 @@ function MyBookingPage() {
     }
   };
 
-  // バリデーション
   const validate = () => {
     const newErrors = {};
 
@@ -50,7 +48,6 @@ function MyBookingPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // 予約検索処理
   const handleSearch = async (e) => {
     e.preventDefault();
 
@@ -63,7 +60,6 @@ function MyBookingPage() {
     setBooking(null);
 
     try {
-      // Firestoreから予約を検索
       const bookingsQuery = query(
         collection(db, 'bookings'),
         where('representativeName', '==', searchData.representativeName),
@@ -73,22 +69,18 @@ function MyBookingPage() {
       const bookingsSnapshot = await getDocs(bookingsQuery);
 
       if (!bookingsSnapshot.empty) {
-        // 最新の予約を取得（複数ある場合は最初の1件）
         const bookingDoc = bookingsSnapshot.docs[0];
         const bookingData = {
           id: bookingDoc.id,
           ...bookingDoc.data()
         };
 
-        // 過去の予約かチェック
         const bookingDateTime = new Date(`${bookingData.date}T${bookingData.startTime}`);
         const now = new Date();
 
         if (bookingDateTime < now) {
-          // 過去の予約
           setBooking({ ...bookingData, isPast: true });
         } else {
-          // 未来の予約
           setBooking({ ...bookingData, isPast: false });
         }
       } else {
@@ -104,7 +96,6 @@ function MyBookingPage() {
     }
   };
 
-  // 予約キャンセル処理
   const handleCancel = async () => {
     if (!booking || !booking.id) {
       return;
@@ -113,7 +104,7 @@ function MyBookingPage() {
     const confirmCancel = window.confirm(
       `以下の予約をキャンセルしますか？\n\n` +
       `会議室: ${booking.roomName}\n` +
-      `日付: ${format(new Date(booking.date), 'yyyy年M月d日')}\n` +
+      `日付: ${format(new Date(booking.date), 'yyyy年M月d日', { locale: ja })}\n` +   // ⭐ 修正
       `時間: ${booking.startTime} 〜 ${booking.endTime}\n\n` +
       `この操作は取り消せません。`
     );
@@ -125,9 +116,7 @@ function MyBookingPage() {
     setCanceling(true);
 
     try {
-      // Firestoreから削除
       await deleteDoc(doc(db, 'bookings', booking.id));
-      
       setCancelComplete(true);
     } catch (error) {
       console.error('予約キャンセルエラー:', error);
@@ -137,7 +126,6 @@ function MyBookingPage() {
     }
   };
 
-  // 新しく検索する
   const handleNewSearch = () => {
     setSearchData({
       representativeName: '',
@@ -149,7 +137,6 @@ function MyBookingPage() {
     setErrors({});
   };
 
-  // キャンセル完了画面
   if (cancelComplete) {
     return (
       <div className="my-booking-container">
@@ -184,7 +171,7 @@ function MyBookingPage() {
   return (
     <div className="my-booking-container">
       <a href="/" className="back-link">← トップに戻る</a>
-      
+
       <h1 className="my-booking-title">予約確認・キャンセル</h1>
 
       <div className="info-message">
@@ -238,7 +225,6 @@ function MyBookingPage() {
         </button>
       </form>
 
-      {/* 検索結果 */}
       {searched && !booking && (
         <div className="no-booking-message">
           <p>予約が見つかりませんでした。</p>
@@ -246,7 +232,6 @@ function MyBookingPage() {
         </div>
       )}
 
-      {/* 予約詳細 */}
       {booking && (
         <div className="booking-details">
           <h2>予約詳細</h2>
@@ -259,7 +244,7 @@ function MyBookingPage() {
           <div className="detail-row">
             <div className="detail-label">日付:</div>
             <div className="detail-value">
-              {format(new Date(booking.date), 'yyyy年M月d日 (E)', { locale: require('date-fns/locale/ja') })}
+              {format(new Date(booking.date), 'yyyy年M月d日 (E)', { locale: ja })}   {/* ⭐ 修正 */}
             </div>
           </div>
 
@@ -290,7 +275,6 @@ function MyBookingPage() {
             </div>
           )}
 
-          {/* キャンセルボタン */}
           {!booking.isPast && (
             <div className="cancel-section">
               <div className="cancel-warning">

@@ -1,0 +1,146 @@
+.admin-login-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+  }
+  
+  .admin-login-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    padding: 40px;
+    width: 100%;
+    max-width: 400px;
+  }
+  
+  .admin-login-title {
+    text-align: center;
+    color: #333;
+    margin: 0 0 30px 0;
+    font-size: 28px;
+    font-weight: 600;
+  }
+  
+  .admin-login-form {
+    margin-bottom: 20px;
+  }
+  
+  .form-group {
+    margin-bottom: 20px;
+  }
+  
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #555;
+    font-weight: 500;
+    font-size: 14px;
+  }
+  
+  .form-group input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: all 0.3s ease;
+    box-sizing: border-box;
+  }
+  
+  .form-group input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  }
+  
+  .form-group input:disabled {
+    background-color: #f5f5f5;
+    cursor: not-allowed;
+  }
+  
+  .error-message {
+    background-color: #fee;
+    border: 1px solid #fcc;
+    color: #c33;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+  
+  .login-button {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+  
+  .login-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+  }
+  
+  .login-button:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  
+  .login-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  .admin-login-footer {
+    text-align: center;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+  }
+  
+  .back-button {
+    background: none;
+    border: 2px solid #667eea;
+    color: #667eea;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-bottom: 16px;
+  }
+  
+  .back-button:hover:not(:disabled) {
+    background-color: #667eea;
+    color: white;
+  }
+  
+  .back-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  .password-hint {
+    margin: 16px 0 0 0;
+    font-size: 13px;
+    color: #888;
+    font-style: italic;
+  }
+  
+  /* レスポンシブ対応 */
+  @media (max-width: 480px) {
+    .admin-login-card {
+      padding: 30px 20px;
+    }
+  
+    .admin-login-title {
+      font-size: 24px;
+    }
+  }

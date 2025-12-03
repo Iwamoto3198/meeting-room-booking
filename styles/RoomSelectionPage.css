@@ -1,0 +1,158 @@
+.room-selection-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+  }
+  
+  .selection-header {
+    max-width: 1200px;
+    margin: 0 auto 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  }
+  
+  .selection-header h1 {
+    margin: 0;
+    color: #333;
+    font-size: 28px;
+  }
+  
+  .header-buttons {
+    display: flex;
+    gap: 10px;
+  }
+  
+  .nav-button {
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+  }
+  
+  .nav-button:hover {
+    background-color: #45a049;
+    transform: translateY(-2px);
+  }
+  
+  .admin-button {
+    background-color: #667eea;
+  }
+  
+  .admin-button:hover {
+    background-color: #5568d3;
+  }
+  
+  .rooms-grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 30px;
+  }
+  
+  .room-card {
+    background: white;
+    border-radius: 12px;
+    padding: 25px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  }
+  
+  .room-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  }
+  
+  .room-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #f0f0f0;
+  }
+  
+  .room-card-header h2 {
+    margin: 0;
+    color: #333;
+    font-size: 24px;
+  }
+  
+  .room-capacity {
+    background: #e3f2fd;
+    color: #1976d2;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  
+  .room-card-body {
+    margin-bottom: 20px;
+  }
+  
+  .room-description {
+    color: #666;
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  
+  .room-card-footer {
+    display: flex;
+    justify-content: flex-end;
+  }
+  
+  .view-calendar-button {
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+  }
+  
+  .view-calendar-button:hover {
+    transform: translateX(5px);
+  }
+  
+  .loading {
+    text-align: center;
+    padding: 50px;
+    color: white;
+    font-size: 18px;
+  }
+  
+  /* レスポンシブ対応 */
+  @media (max-width: 768px) {
+    .selection-header {
+      flex-direction: column;
+      gap: 15px;
+    }
+  
+    .header-buttons {
+      width: 100%;
+    }
+  
+    .nav-button {
+      flex: 1;
+    }
+  
+    .rooms-grid {
+      grid-template-columns: 1fr;
+    }
+  }

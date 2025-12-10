@@ -228,11 +228,11 @@ npm start
 
 ```
 meeting-room-booking/
-├── public/                 # 静的ファイル
+├── public/                # 静的ファイル
 │   ├── index.html
 │   └── ...
 ├── src/
-│   ├── components/         # 再利用可能なコンポーネント
+│   ├── components/        # 再利用可能なコンポーネント
 │   │   ├── BlockedDatesManager.js    # 予約不可日管理
 │   │   ├── BookingModal.js           # 予約モーダル
 │   │   ├── BookingsListManager.js    # 予約一覧管理

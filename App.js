@@ -9,7 +9,12 @@ import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import InitDataPage from './pages/InitDataPage';
 
-// 管理者専用ルートの保護コンポーネント
+/**
+ * ProtectedRoute - 管理者専用ルートの保護コンポーネント
+ * 
+ * このコンポーネントは、管理者のみがアクセスできるページを保護します。
+ * 管理者でない場合は、自動的にログインページにリダイレクトします。
+ */
 const ProtectedRoute = ({ children }) => {
   const { isAdmin, loading } = useAuth();
 
@@ -30,20 +35,11 @@ function App() {
       <Router>
         <div className="App">
           <Routes>
-            {/* 会議室選択ページ（新規・トップページ） */}
             <Route path="/" element={<RoomSelectionPage />} />
-            
-            {/* 会議室別カレンダーページ（変更） */}
             <Route path="/calendar/:roomId" element={<HomePage />} />
-            
-            {/* 一般ユーザー向けページ */}
             <Route path="/booking" element={<BookingPage />} />
             <Route path="/my-booking" element={<MyBookingPage />} />
-            
-            {/* 管理者ログインページ */}
             <Route path="/admin/login" element={<AdminLoginPage />} />
-            
-            {/* 管理者専用ページ（保護されたルート） */}
             <Route 
               path="/admin/dashboard" 
               element={
@@ -53,7 +49,6 @@ function App() {
               } 
             />
             
-            {/* 開発用ページ */}
             <Route path="/init-data" element={<InitDataPage />} />
           </Routes>
         </div>

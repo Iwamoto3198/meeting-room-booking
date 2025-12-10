@@ -142,7 +142,7 @@ function SystemSettings() {
     <div className="system-settings-container">
       <h2>システム設定</h2>
 
-      {/* パスワード変更セクション */}
+      {/* パスワードの変更 */}
       <div className="settings-section">
         <h3>管理者パスワード変更</h3>
         <form onSubmit={handlePasswordSubmit} className="settings-form">
@@ -193,7 +193,7 @@ function SystemSettings() {
         </form>
       </div>
 
-      {/* 営業時間・予約設定セクション */}
+      {/* 営業時間・予約設定 */}
       <div className="settings-section">
         <h3>営業時間・予約設定</h3>
         <form onSubmit={handleBusinessSubmit} className="settings-form">

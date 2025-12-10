@@ -11,7 +11,7 @@ function BlockedDatesManager() {
   
   const [formData, setFormData] = useState({
     date: '',
-    type: 'all', // 'all' or 'specific'
+    type: 'all', 
     roomId: '',
     reason: ''
   });
@@ -82,7 +82,7 @@ function BlockedDatesManager() {
         return;
       }
 
-      // 追加
+      // 予約不可日の追加
       const newBlocked = {
         date: formData.date,
         type: formData.type,

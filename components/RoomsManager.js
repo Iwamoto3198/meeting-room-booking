@@ -11,7 +11,8 @@ function RoomsManager() {
   
   const [formData, setFormData] = useState({
     name: '',
-    capacity: ''
+    capacity: '',
+    description: '' 
   });
   const [formError, setFormError] = useState('');
 
@@ -38,7 +39,6 @@ function RoomsManager() {
     e.preventDefault();
     setFormError('');
 
-    // バリデーション
     if (!formData.name.trim()) {
       setFormError('会議室名を入力してください');
       return;
@@ -50,18 +50,18 @@ function RoomsManager() {
 
     try {
       if (editingRoom) {
-        // 更新
         await updateDoc(doc(db, 'rooms', editingRoom.id), {
           name: formData.name.trim(),
-          capacity: parseInt(formData.capacity)
+          capacity: parseInt(formData.capacity),
+          description: formData.description.trim() 
         });
         alert('会議室を更新しました');
       } else {
-        // 新規追加
         const maxOrder = rooms.length > 0 ? Math.max(...rooms.map(r => r.order)) : 0;
         await addDoc(collection(db, 'rooms'), {
           name: formData.name.trim(),
           capacity: parseInt(formData.capacity),
+          description: formData.description.trim(), 
           order: maxOrder + 1,
           createdAt: new Date()
         });
@@ -70,7 +70,7 @@ function RoomsManager() {
 
       setShowForm(false);
       setEditingRoom(null);
-      setFormData({ name: '', capacity: '' });
+      setFormData({ name: '', capacity: '', description: '' });
       fetchRooms();
 
     } catch (error) {
@@ -83,14 +83,14 @@ function RoomsManager() {
     setEditingRoom(room);
     setFormData({
       name: room.name,
-      capacity: room.capacity
+      capacity: room.capacity,
+      description: room.description || '' 
     });
     setFormError('');
     setShowForm(true);
   };
 
   const handleDelete = async (room) => {
-    // 予約が存在するかチェック
     const bookingsQuery = query(
       collection(db, 'bookings'),
       where('roomId', '==', room.id)
@@ -104,7 +104,6 @@ function RoomsManager() {
         return;
       }
 
-      // 関連する予約を削除
       for (const bookingDoc of bookingsSnapshot.docs) {
         await deleteDoc(bookingDoc.ref);
       }
@@ -153,7 +152,7 @@ function RoomsManager() {
   const cancelForm = () => {
     setShowForm(false);
     setEditingRoom(null);
-    setFormData({ name: '', capacity: '' });
+    setFormData({ name: '', capacity: '', description: '' });
     setFormError('');
   };
 
@@ -200,6 +199,18 @@ function RoomsManager() {
               />
             </div>
 
+            {/* 備考欄を追加 */}
+            <div className="form-group">
+              <label>備考</label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                placeholder="例: プロジェクター完備、ホワイトボード2台"
+                rows="3"
+              />
+              <small>会議室選択画面に表示されます</small>
+            </div>
+
             {formError && (
               <div className="error-message">{formError}</div>
             )}
@@ -232,6 +243,11 @@ function RoomsManager() {
                 <div className="room-info">
                   <div className="room-name">{room.name}</div>
                   <div className="room-capacity">定員: {room.capacity}名</div>
+                  {room.description && (
+                    <div className="room-description">
+                      備考: {room.description}
+                    </div>
+                  )}
                 </div>
                 <div className="room-actions">
                   <button

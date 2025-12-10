@@ -236,22 +236,22 @@ meeting-room-booking/
 │   │   ├── BlockedDatesManager.js    # 予約不可日管理
 │   │   ├── BookingModal.js           # 予約モーダル
 │   │   ├── BookingsListManager.js    # 予約一覧管理
-│   │   ├── CalendarTable.js           # カレンダーテーブル
+│   │   ├── CalendarTable.js          # カレンダーテーブル
 │   │   ├── RoomsManager.js           # 会議室管理
 │   │   └── SystemSettings.js         # システム設定
 │   ├── contexts/          # React Context
 │   │   └── AuthContext.js            # 認証コンテキスト
 │   ├── pages/             # ページコンポーネント
 │   │   ├── AdminDashboard.js         # 管理者ダッシュボード
-│   │   ├── AdminLoginPage.js        # 管理者ログイン
-│   │   ├── BookingPage.js           # 予約フォームページ
-│   │   ├── HomePage.js              # カレンダーページ
-│   │   ├── InitDataPage.js          # 初期データ投入ページ
-│   │   ├── MyBookingPage.js         # 予約確認ページ
+│   │   ├── AdminLoginPage.js         # 管理者ログイン
+│   │   ├── BookingPage.js            # 予約フォームページ
+│   │   ├── HomePage.js               # カレンダーページ
+│   │   ├── InitDataPage.js           # 初期データ投入ページ
+│   │   ├── MyBookingPage.js          # 予約確認ページ
 │   │   └── RoomSelectionPage.js      # 会議室選択ページ
 │   ├── styles/            # CSSファイル
 │   ├── utils/             # ユーティリティ関数
-│   │   └── dateUtils.js              # 日付操作関数
+│   │   └── dateUtils.js   # 日付操作関数
 │   ├── App.js             # メインアプリケーションコンポーネント
 │   ├── firebase.js        # Firebase初期化
 │   └── index.js           # エントリーポイント

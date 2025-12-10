@@ -1,27 +1,55 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * ========================================
+ * HomePage.js - 会議室予約カレンダーページ
+ * ========================================
+ * 
+ * このページは、選択した会議室の予約カレンダーを表示します。
+ * ユーザーはカレンダー上で予約を作成・確認・キャンセルできます。
+ * 
+ * URL: /calendar/:roomId
+ * 
+ * 主な機能:
+ * - 週単位のカレンダー表示
+ * - 予約の作成・確認・キャンセル
+ * - 予約不可日の表示
+ * - 週の移動（前週・今週・次週）
+ * - 会議室の切り替え
+ */
+
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, getDocs, query, where, doc, getDoc, addDoc, deleteDoc } from 'firebase/firestore';
-import { getWeekDates, formatDate, formatDateDisplay, generateTimeSlots } from '../utils/dateUtils';
+import { getWeekDates, formatDate, generateTimeSlots } from '../utils/dateUtils';
+import CalendarTable from '../components/CalendarTable';
+import BookingModal from '../components/BookingModal';
 import '../styles/HomePage.css';
 
 function HomePage() {
-  const { roomId } = useParams();
-  const navigate = useNavigate();
-  // カレンダー関係の状態
+  // ========================================
+  // URLパラメータとナビゲーション
+  // ========================================
+  const { roomId } = useParams(); // URLから会議室IDを取得（例: /calendar/room1 → roomId = "room1"）
+  const navigate = useNavigate();  // ページ遷移用の関数
+  
+  // ========================================
+  // カレンダー関係の状態管理
+  // ========================================
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [weekDates, setWeekDates] = useState([]);
   const [currentRoom, setCurrentRoom] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [blockedDates, setBlockedDates] = useState([]);
   const [timeSlots, setTimeSlots] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
   // モーダル関係の状態
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('');
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  
   // 予約フォーム関係の状態
   const [formData, setFormData] = useState({
     representativeName: '',
@@ -31,131 +59,289 @@ function HomePage() {
     startTime: '',
     endTime: ''
   });
-  const [formError, setFormError] = useState('');
+  const [formError, setFormError] = useState(''); // フォームのエラーメッセージ
 
+  // ========================================
+  // 計算値（メモ化）
+  // ========================================
+  
+  /**
+   * weekDates - 現在の週の日付配列（月曜日から日曜日まで）
+   * 
+   * useMemoでメモ化することで、currentDateが変わった時のみ再計算されます。
+   * これにより、不要な再レンダリングを防ぎます。
+   */
+  const weekDates = useMemo(() => getWeekDates(currentDate), [currentDate]);
+
+  // ========================================
+  // データ取得（useEffect）
+  // ========================================
+  
+  /**
+   * 会議室データと設定データの取得
+   * 
+   * これらのデータは変更頻度が低いため、roomIdが変わった時のみ取得します。
+   * これにより、パフォーマンスを向上させます。
+   */
   useEffect(() => {
-    fetchData(); // データ取得関数を実行
-  }, [currentDate, roomId]);
+    let isMounted = true;
 
-  const fetchData = async () => {
-    setLoading(true); // ローディング開始
+    const loadRoomsAndSettings = async () => {
+      try {
+        // 会議室データ取得
+        const roomsSnapshot = await getDocs(collection(db, 'rooms'));
+        const roomsData = roomsSnapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .sort((a, b) => (a.order || 0) - (b.order || 0));
+        
+        if (!isMounted) return;
+        setRooms(roomsData);
+
+        // 選択した会議室を設定
+        const room = roomsData.find(r => r.id === roomId);
+        if (room) {
+          setCurrentRoom(room);
+        } else {
+          navigate('/');
+          return;
+        }
+
+        // 設定データ取得
+        const settingsDoc = await getDoc(doc(db, 'settings', 'config'));
+        if (!isMounted) return;
+        
+        if (settingsDoc.exists()) {
+          const settings = settingsDoc.data();
+          const slots = generateTimeSlots(
+            settings.businessStartTime || '09:00',
+            settings.businessEndTime || '18:00',
+            settings.bookingIntervalMinutes || 15
+          );
+          setTimeSlots(slots);
+        } else {
+          // 設定データが存在しない場合のデフォルト値
+          console.warn('設定データが見つかりません。デフォルト値を使用します。');
+          const defaultSlots = generateTimeSlots('09:00', '18:00', 15);
+          setTimeSlots(defaultSlots);
+        }
+      } catch (error) {
+        console.error('会議室・設定データ取得エラー:', error);
+        if (isMounted) {
+          setError('データの読み込みに失敗しました。ページを再読み込みしてください。');
+        }
+      }
+    };
+
+    loadRoomsAndSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [roomId, navigate]);
+
+  /**
+   * refreshBookings - 予約データを再取得する共通関数
+   * 
+   * この関数は、予約作成・キャンセル後にカレンダーを更新するために使用されます。
+   * useCallbackでメモ化されているため、依存配列の値が変わらない限り再作成されません。
+   * 
+   * 機能:
+   * - 現在の週の予約データをFirestoreから取得
+   * - インデックスエラーの場合はフォールバック処理を実行
+   * - 取得したデータでbookingsステートを更新
+   */
+  const refreshBookings = useCallback(async () => {
+    if (!roomId || !weekDates.length) return;
+
     try {
-      // １.会議室のデータ取得
-      const roomsSnapshot = await getDocs(collection(db, 'rooms'));
-      const roomsData = roomsSnapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .sort((a, b) => a.order - b.order);
-      setRooms(roomsData);
+      const startDate = formatDate(weekDates[0]);
+      const endDate = formatDate(weekDates[6]);
 
-      // ２.選択した会議室のデータ取得
-      const room = roomsData.find(r => r.id === roomId);
-      if (room) {
-        setCurrentRoom(room);
-      } else {
-        navigate('/');
-        return;
-      }
-
-      // ３.設定データの取得
-      const settingsDoc = await getDoc(doc(db, 'settings', 'config'));
-      if (settingsDoc.exists()) {
-        const settings = settingsDoc.data();
-        const slots = generateTimeSlots(
-          settings.businessStartTime,
-          settings.businessEndTime,
-          settings.bookingIntervalMinutes
+      // 予約データ取得（日付範囲でフィルタリング）
+      // 注意: 複数のwhere条件を使用する場合、Firestoreの複合インデックスが必要です
+      let bookingsSnapshot;
+      try {
+        const bookingsQuery = query(
+          collection(db, 'bookings'),
+          where('roomId', '==', roomId),
+          where('date', '>=', startDate),
+          where('date', '<=', endDate)
         );
-        setTimeSlots(slots);
+        bookingsSnapshot = await getDocs(bookingsQuery);
+      } catch (queryError) {
+        // インデックスエラーの場合、roomIdのみでフィルタリングしてクライアント側でフィルタリング
+        if (queryError.code === 'failed-precondition' || queryError.message?.includes('index')) {
+          console.warn('複合インデックスが見つかりません。roomIdのみでフィルタリングします。');
+          const fallbackQuery = query(
+            collection(db, 'bookings'),
+            where('roomId', '==', roomId)
+          );
+          bookingsSnapshot = await getDocs(fallbackQuery);
+        } else {
+          throw queryError;
+        }
       }
-
-      // ４.週の日付を取得
-      const dates = getWeekDates(currentDate);
-      setWeekDates(dates);
-
-      // ５.予約の範囲を取得
-      const startDate = formatDate(dates[0]);
-      const endDate = formatDate(dates[6]);
-      console.log('予約取得範囲:', { startDate, endDate, roomId });
       
-      // roomIdでフィルタリングしてからクライアント側で日付範囲をフィルタリング
-      const bookingsQuery = query(
-        collection(db, 'bookings'),
-        where('roomId', '==', roomId)
-      );
-      const bookingsSnapshot = await getDocs(bookingsQuery);
-      const allBookingsData = bookingsSnapshot.docs.map(doc => ({
+      let bookingsData = bookingsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      // クライアント側で日付範囲をフィルタリング
-      const bookingsData = allBookingsData.filter(booking => {
-        return booking.date >= startDate && booking.date <= endDate;
-      });
-      console.log('取得した予約情報（全件）:', allBookingsData);
-      console.log('フィルタリング後の予約情報:', bookingsData);
-      setBookings(bookingsData);
-
-      // ６.予約不可日を取得
-      const blockedDatesSnapshot = await getDocs(collection(db, 'blockedDates'));
-      const blockedDatesData = blockedDatesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      console.log('取得した予約不可日:', blockedDatesData);
-      setBlockedDates(blockedDatesData);
-
-    } catch (error) {
-      console.error('データ取得エラー:', error);
-    } finally {
-      setLoading(false); // ローディング終了
-    }
-  };
-
-  //　予約情報の取得関数
-  const getBookingForSlot = (roomId, date, time) => {
-    const booking = bookings.find(booking => {
-      if (booking.roomId !== roomId || booking.date !== date) {
-        return false;
+      
+      // インデックスエラーでフォールバックした場合、クライアント側で日付範囲をフィルタリング
+      if (bookingsData.length > 0 && bookingsData.some(b => b.date < startDate || b.date > endDate)) {
+        bookingsData = bookingsData.filter(booking => {
+          return booking.date >= startDate && booking.date <= endDate;
+        });
       }
-      return time >= booking.startTime && time < booking.endTime;
-    });
-    if (booking && time === booking.startTime) {
-      console.log('予約情報が見つかりました:', { roomId, date, time, booking });
+      
+      setBookings(bookingsData);
+    } catch (error) {
+      console.error('予約データ再取得エラー:', error);
+      // エラーは表示せず、コンソールにのみ記録（ユーザー体験を損なわないため）
     }
-    return booking;
-  };
+  }, [roomId, weekDates]);
 
-  // 予約不可日の判定関数
-  const isDateBlocked = (date, roomId = null) => {
-    const isBlocked = blockedDates.some(blocked => {
+  // 予約データと予約不可日データを取得（週が変わった時のみ）
+  useEffect(() => {
+    if (!roomId || !weekDates.length) return;
+
+    let isMounted = true;
+    setLoading(true);
+    setError(null);
+
+    const fetchBookingData = async () => {
+      try {
+        const startDate = formatDate(weekDates[0]);
+        const endDate = formatDate(weekDates[6]);
+
+        // 予約データ取得（日付範囲でフィルタリング）
+        // 注意: 複数のwhere条件を使用する場合、Firestoreの複合インデックスが必要です
+        let bookingsSnapshot;
+        try {
+          const bookingsQuery = query(
+            collection(db, 'bookings'),
+            where('roomId', '==', roomId),
+            where('date', '>=', startDate),
+            where('date', '<=', endDate)
+          );
+          bookingsSnapshot = await getDocs(bookingsQuery);
+        } catch (queryError) {
+          // インデックスエラーの場合、roomIdのみでフィルタリングしてクライアント側でフィルタリング
+          if (queryError.code === 'failed-precondition' || queryError.message?.includes('index')) {
+            console.warn('複合インデックスが見つかりません。roomIdのみでフィルタリングします。');
+            const fallbackQuery = query(
+              collection(db, 'bookings'),
+              where('roomId', '==', roomId)
+            );
+            bookingsSnapshot = await getDocs(fallbackQuery);
+          } else {
+            throw queryError;
+          }
+        }
+        
+        if (!isMounted) return;
+        
+        let bookingsData = bookingsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        if (bookingsData.length > 0 && bookingsData.some(b => b.date < startDate || b.date > endDate)) {
+          bookingsData = bookingsData.filter(booking => {
+            return booking.date >= startDate && booking.date <= endDate;
+          });
+        }
+        
+        setBookings(bookingsData);
+
+        // 予約不可日取得（日付範囲でフィルタリング）
+        let blockedDatesSnapshot;
+        try {
+          const blockedDatesQuery = query(
+            collection(db, 'blockedDates'),
+            where('date', '>=', startDate),
+            where('date', '<=', endDate)
+          );
+          blockedDatesSnapshot = await getDocs(blockedDatesQuery);
+        } catch (queryError) {
+          if (queryError.code === 'failed-precondition' || queryError.message?.includes('index')) {
+            console.warn('複合インデックスが見つかりません。全件取得してフィルタリングします。');
+            blockedDatesSnapshot = await getDocs(collection(db, 'blockedDates'));
+          } else {
+            throw queryError;
+          }
+        }
+        
+        if (!isMounted) return;
+        
+        let blockedDatesData = blockedDatesSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        if (blockedDatesData.length > 0 && blockedDatesData.some(b => b.date < startDate || b.date > endDate)) {
+          blockedDatesData = blockedDatesData.filter(blocked => {
+            return blocked.date >= startDate && blocked.date <= endDate;
+          });
+        }
+        
+        setBlockedDates(blockedDatesData);
+
+      } catch (error) {
+        console.error('予約データ取得エラー:', error);
+        if (isMounted) {
+          if (error.code === 'failed-precondition' || error.message?.includes('index')) {
+            setError(
+              '⚠️ Firestoreのインデックスが必要です。\n\n' +
+              'ブラウザのコンソールに表示されたインデックス作成リンクをクリックするか、\n' +
+              'Firebaseコンソールで以下のインデックスを作成してください：\n' +
+              '- Collection: bookings\n' +
+              '- Fields: roomId (Ascending), date (Ascending)'
+            );
+          } else {
+            setError(`予約データの読み込みに失敗しました: ${error.message || '不明なエラー'}`);
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchBookingData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [roomId, weekDates]);
+
+  const isDateBlocked = useCallback((date, roomId = null) => {
+    return blockedDates.some(blocked => {
       if (blocked.date !== date) return false;
       if (blocked.type === 'all') return true;
       if (blocked.type === 'specific' && blocked.roomId === roomId) return true;
       return false;
     });
-    if (isBlocked) {
-      console.log('予約不可日:', { date, roomId, blockedDates: blockedDates.filter(b => b.date === date) });
-    }
-    return isBlocked;
-  };
+  }, [blockedDates]);
 
-  //　終了時間の計算関数
-  const calculateEndTime = (startTime, duration) => {
+  const calculateEndTime = useCallback((startTime, duration) => {
     const [hour, minute] = startTime.split(':').map(Number);
     const endMinute = minute + duration;
     const endHour = endMinute >= 60 ? hour + Math.floor(endMinute / 60) : hour;
     return `${String(endHour).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`;
-  };
+  }, []);
 
-  // スロットクリックの処理関数
-  const handleSlotClick = (room, date, time) => {
+  const handleSlotClick = useCallback((room, date, time) => {
     const dateStr = formatDate(date);
     
+    // 過去の日時かどうかをチェック
     const slotDateTime = new Date(`${dateStr}T${time}`);
     if (slotDateTime < new Date()) {
       return;
     }
 
+    // 予約不可日チェック
     if (isDateBlocked(dateStr, room.id)) {
       const blocked = blockedDates.find(b => 
         b.date === dateStr && 
@@ -167,13 +353,19 @@ function HomePage() {
       return;
     }
 
-    const booking = getBookingForSlot(room.id, dateStr, time);
+    // 予約の確認
+    const booking = bookings.find(booking => {
+      if (booking.roomId !== room.id || booking.date !== dateStr) return false;
+      return time >= booking.startTime && time < booking.endTime;
+    });
     
     if (booking) {
+      // 既存予約を表示
       setSelectedBooking(booking);
       setModalMode('view');
       setShowModal(true);
     } else {
+      // 新規予約フォームを表示
       setSelectedSlot({ room, date: dateStr, time });
       setFormData({
         representativeName: '',
@@ -187,12 +379,11 @@ function HomePage() {
       setModalMode('create');
       setShowModal(true);
     }
-  };
+  }, [isDateBlocked, blockedDates, bookings, calculateEndTime]);
 
-  // 予約作成ページの処理関数
-  const handleCreateBooking = async (e) => {
-    e.preventDefault();
-    setFormError('');
+  const handleCreateBooking = useCallback(async (e) => {
+    e.preventDefault(); 
+    setFormError(''); 
 
     if (!formData.representativeName.trim()) {
       setFormError('代表者名を入力してください');
@@ -243,6 +434,8 @@ function HomePage() {
         return;
       }
 
+      
+      // Firestoreへの予約データ保存
       await addDoc(collection(db, 'bookings'), {
         roomId: selectedSlot.room.id,
         roomName: selectedSlot.room.name,
@@ -258,66 +451,85 @@ function HomePage() {
 
       alert('予約が完了しました！');
       setShowModal(false);
-      fetchData();
+      // 予約データを再取得（共通関数を使用）
+      await refreshBookings();
 
     } catch (error) {
       console.error('予約作成エラー:', error);
       setFormError('予約の作成に失敗しました');
     }
-  };
+  }, [formData, selectedSlot, bookings, refreshBookings]);
 
-  // 予約キャンセルページの処理関数
-  const handleCancelBooking = async () => {
+  const handleCancelBooking = useCallback(async () => {
+    // ユーザーに確認を求める
     if (!window.confirm('この予約をキャンセルしますか？')) {
       return;
     }
 
     try {
+      // Firestoreから予約データを削除
       await deleteDoc(doc(db, 'bookings', selectedBooking.id));
       alert('予約をキャンセルしました');
       setShowModal(false);
-      fetchData();
+      // 予約データを再取得（共通関数を使用）
+      await refreshBookings();
     } catch (error) {
       console.error('キャンセルエラー:', error);
       alert('キャンセルに失敗しました');
     }
-  };
+  }, [selectedBooking, refreshBookings]);
 
-  // モーダルを閉じる関数
-  const closeModal = () => {
+  // モーダルを閉じる
+  const closeModal = useCallback(() => {
     setShowModal(false);
     setSelectedSlot(null);
     setSelectedBooking(null);
     setFormError('');
-  };
+  }, []);
 
-  //週の移動系関数
-  const goToPreviousWeek = () => {
-    const newDate = new Date(currentDate);
-    newDate.setDate(newDate.getDate() - 7);
-    setCurrentDate(newDate);
-  };
+  // 週の移動
+  const goToPreviousWeek = useCallback(() => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() - 7);
+      return newDate;
+    });
+  }, []);
 
-  const goToThisWeek = () => {
+  const goToThisWeek = useCallback(() => {
     setCurrentDate(new Date());
-  };
+  }, []);
 
-  const goToNextWeek = () => {
-    const newDate = new Date(currentDate);
-    newDate.setDate(newDate.getDate() + 7);
-    setCurrentDate(newDate);
-  };
+  const goToNextWeek = useCallback(() => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      newDate.setDate(newDate.getDate() + 7);
+      return newDate;
+    });
+  }, []);
 
-  //　会議室の変更画面
-  const handleRoomChange = (newRoomId) => {
+  // 会議室切り替え
+  const handleRoomChange = useCallback((newRoomId) => {
     navigate(`/calendar/${newRoomId}`);
-  };
+  }, [navigate]);
 
-  if (loading) {
+  if (loading && !currentRoom) {
     return <div className="loading">読み込み中...</div>;
   }
 
-  // カレンダー画面
+  if (error) {
+    return (
+      <div className="home-container">
+        <div style={{ padding: '20px', textAlign: 'center', color: '#d32f2f' }}>
+          <p>⚠️ {error}</p>
+          <button onClick={() => window.location.reload()} className="nav-button">
+            ページを再読み込み
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="home-container">
       <header className="home-header">
@@ -360,194 +572,28 @@ function HomePage() {
         </button>
       </div>
 
-      <div className="calendar-container">
-        <table className="calendar-table">
-          <thead>
-            <tr>
-              <th className="time-header">時間</th>
-              {weekDates.map((date, index) => (
-                <th key={index} className="date-header">
-                  {formatDateDisplay(date)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {currentRoom && timeSlots.map((time) => (
-              <tr key={time} className="time-row">
-                <td className="time-cell">{time}</td>
-                {weekDates.map((date, dateIndex) => {
-                  const dateStr = formatDate(date);
-                  const booking = getBookingForSlot(currentRoom.id, dateStr, time);
-                  const isBlocked = isDateBlocked(dateStr, currentRoom.id);
-                  const isPast = new Date(`${dateStr}T${time}`) < new Date();
-                  
-                  let cellClass = 'booking-cell';
-                  if (isPast) cellClass += ' past';
-                  else if (isBlocked) cellClass += ' blocked';
-                  else if (booking) cellClass += ' booked';
-                  else cellClass += ' available';
+      <CalendarTable
+        weekDates={weekDates}
+        currentRoom={currentRoom}
+        timeSlots={timeSlots}
+        bookings={bookings}
+        blockedDates={blockedDates}
+        onSlotClick={handleSlotClick}
+      />
 
-                  return (
-                    <td
-                      key={dateIndex}
-                      className={cellClass}
-                      onClick={() => !isPast && handleSlotClick(currentRoom, date, time)}
-                    >
-                      {!isBlocked && booking && booking.startTime === time && (
-                        <div className="booking-info">
-                          <div className="booking-time">
-                            {booking.startTime} - {booking.endTime}
-                          </div>
-                          <div className="booking-name">
-                            {booking.representativeName}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {showModal && (
-        <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            {modalMode === 'view' && selectedBooking && (
-              <>
-                <h2>予約詳細</h2>
-                <div className="booking-details">
-                  <p><strong>会議室:</strong> {selectedBooking.roomName}</p>
-                  <p><strong>日付:</strong> {selectedBooking.date}</p>
-                  <p><strong>時間:</strong> {selectedBooking.startTime} - {selectedBooking.endTime}</p>
-                  <p><strong>代表者:</strong> {selectedBooking.representativeName}</p>
-                  {selectedBooking.purpose && (
-                    <p><strong>目的:</strong> {selectedBooking.purpose}</p>
-                  )}
-                </div>
-                <div className="modal-buttons">
-                  <button onClick={handleCancelBooking} className="cancel-button">
-                    予約をキャンセル
-                  </button>
-                  <button onClick={closeModal} className="close-button">
-                    閉じる
-                  </button>
-                </div>
-              </>
-            )}
-
-            {modalMode === 'create' && selectedSlot && (
-              <>
-                <h2>予約作成</h2>
-                <div className="booking-details">
-                  <p><strong>会議室:</strong> {selectedSlot.room.name}</p>
-                  <p><strong>日付:</strong> {selectedSlot.date}</p>
-                </div>
-                <form onSubmit={handleCreateBooking} className="booking-form">
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>開始時刻 *</label>
-                      <select
-                        value={formData.startTime}
-                        onChange={(e) => setFormData({...formData, startTime: e.target.value})}
-                        required
-                      >
-                        <option value="">選択してください</option>
-                        {timeSlots.map(time => (
-                          <option key={time} value={time}>{time}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label>終了時刻 *</label>
-                      <select
-                        value={formData.endTime}
-                        onChange={(e) => setFormData({...formData, endTime: e.target.value})}
-                        required
-                      >
-                        <option value="">選択してください</option>
-                        {timeSlots.map(time => (
-                          <option key={time} value={time}>{time}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label>代表者名 *</label>
-                    <input
-                      type="text"
-                      value={formData.representativeName}
-                      onChange={(e) => setFormData({...formData, representativeName: e.target.value})}
-                      placeholder="山田"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>電話番号 *</label>
-                    <input
-                      type="tel"
-                      value={formData.phoneNumber}
-                      onChange={(e) => setFormData({...formData, phoneNumber: e.target.value})}
-                      placeholder="090-1234-5678"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>利用人数 *</label>
-                    <input
-                      type="number"
-                      value={formData.numberOfPeople}
-                      onChange={(e) => setFormData({...formData, numberOfPeople: e.target.value})}
-                      min="1"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>会議の目的</label>
-                    <input
-                      type="text"
-                      value={formData.purpose}
-                      onChange={(e) => setFormData({...formData, purpose: e.target.value})}
-                      placeholder="営業会議"
-                    />
-                  </div>
-                  {formError && <div className="error-message">{formError}</div>}
-                  <div className="modal-buttons">
-                    <button type="submit" className="submit-button">
-                      予約する
-                    </button>
-                    <button type="button" onClick={closeModal} className="close-button">
-                      キャンセル
-                    </button>
-                  </div>
-                </form>
-              </>
-            )}
-
-            {modalMode === 'blocked' && selectedSlot && (
-              <>
-                <h2>予約不可</h2>
-                <div className="booking-details">
-                  <p><strong>会議室:</strong> {selectedSlot.room.name}</p>
-                  <p><strong>日付:</strong> {selectedSlot.date}</p>
-                  <p>この日は予約できません。</p>
-                  {selectedSlot.blocked?.reason && (
-                    <p><strong>理由:</strong> {selectedSlot.blocked.reason}</p>
-                  )}
-                </div>
-                <div className="modal-buttons">
-                  <button onClick={closeModal} className="close-button">
-                    閉じる
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <BookingModal
+        showModal={showModal}
+        modalMode={modalMode}
+        selectedSlot={selectedSlot}
+        selectedBooking={selectedBooking}
+        formData={formData}
+        formError={formError}
+        timeSlots={timeSlots}
+        onClose={closeModal}
+        onFormChange={setFormData}
+        onCreateBooking={handleCreateBooking}
+        onCancelBooking={handleCancelBooking}
+      />
     </div>
   );
 }

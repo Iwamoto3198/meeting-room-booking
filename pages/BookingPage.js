@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, query, where, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { formatDate, generateTimeSlots } from '../utils/dateUtils';
 import { format } from 'date-fns';
@@ -11,7 +11,7 @@ function BookingPage() {
   const [settings, setSettings] = useState(null);
   const [timeSlots, setTimeSlots] = useState([]);
   
-  //各項目を１つのオブジェクトで管理
+  //各項目をオブジェクトで管理
   const [formData, setFormData] = useState({
     roomId: '',
     date: '',
@@ -46,17 +46,29 @@ function BookingPage() {
       setRooms(roomsData);
 
       // 設定データ取得
-      const settingsSnapshot = await getDocs(collection(db, 'settings'));
-      if (!settingsSnapshot.empty) {
-        const settingsData = settingsSnapshot.docs[0].data();
+      const settingsDoc = await getDoc(doc(db, 'settings', 'config'));
+      if (settingsDoc.exists()) {
+        const settingsData = settingsDoc.data();
         setSettings(settingsData);
         
         const slots = generateTimeSlots(
-          settingsData.businessStartTime,
-          settingsData.businessEndTime,
-          settingsData.bookingIntervalMinutes
+          settingsData.businessStartTime || '09:00',
+          settingsData.businessEndTime || '18:00',
+          settingsData.bookingIntervalMinutes || 15
         );
         setTimeSlots(slots);
+      } else {
+        // 設定データが存在しない場合
+        console.warn('設定データが見つかりません。デフォルト値を使用します。');
+        const defaultSettings = {
+          businessStartTime: '09:00',
+          businessEndTime: '18:00',
+          bookingIntervalMinutes: 15,
+          maxBookingDays: 60
+        };
+        setSettings(defaultSettings);
+        const defaultSlots = generateTimeSlots('09:00', '18:00', 15);
+        setTimeSlots(defaultSlots);
       }
 
       setLoading(false);
@@ -140,7 +152,7 @@ function BookingPage() {
     }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0; //エラーがなければtrue
+    return Object.keys(newErrors).length === 0;
   };
 
   // 重複チェック
@@ -162,11 +174,11 @@ function BookingPage() {
           (formData.endTime > booking.startTime && formData.endTime <= booking.endTime) ||
           (formData.startTime <= booking.startTime && formData.endTime >= booking.endTime)
         ) {
-          return true; // 重複あり
+          return true; 
         }
       }
 
-      return false; // 重複なし
+      return false; 
     } catch (error) {
       console.error('重複チェックエラー:', error);
       throw error;

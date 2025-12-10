@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { format } from 'date-fns';
-import { ja } from 'date-fns/locale';   // ⭐ 追加
+import { ja } from 'date-fns/locale';   
 import '../styles/MyBookingPage.css';
 
 function MyBookingPage() {
